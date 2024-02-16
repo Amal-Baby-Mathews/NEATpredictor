@@ -4,7 +4,6 @@ import os
 import time
 import neat
 from drawnow import drawnow
-gen=0
 #load csv dataset for training from /archive/TSLA.csv use parsing if necessary
 import pandas as pd
 import numpy as np
@@ -29,12 +28,28 @@ def load_dataset(csv_file_path):
 # Usage
 dataset = load_dataset('./archive/TSLA.csv')
 def makeFig():
-        print(plot_data)
-        xList = [x for x, _ in plot_data if x is not None and _ is not None]
-        yList = [y for _, y in plot_data if y is not None and _ is not None]
+        xList = [x for x, _, _  in plot_data if x is not None]
+        yaList = [y for _, y, _ in plot_data if y is not None]
+        ypList = [y for _, _, y in plot_data if y is not None]
+        if len(xList) != len(yaList) or len(xList) != len(ypList):
+            raise ValueError("xList, yaList, and ypList must have the same length.")
 
-        plt.plot(xList, yList, marker='o', label='Data') # I think you meant this
+        # Plot `yaList` with a different marker and label
+        plt.plot(xList, yaList, marker='^', label='yaList')
+
+        # Plot `ypList` with another marker and label
+        plt.plot(xList, ypList, marker='s', label='ypList')
+
+        x, y = xList[-1], ypList[-1]
+        plt.text(x + 0.1, y, f"Generation: {gen}", ha='center', fontsize=8)
+        # Set plot labels and title
+        plt.xlabel("Stocks")
+        plt.ylabel("data point")
+        plt.title("Tesla data plot")
+
+        
 plot_data=[]
+gen=0
 def main(genomes,config):
     global gen
     ge = []
@@ -49,35 +64,40 @@ def main(genomes,config):
     # Create a figure and axes for all genomes
     global plot_data 
     plot_data = []
+    past_pred=""
+    past_act=""
     plt.ion() # enable interactivity
     plt.figure() # make a figure
+    past_10_close=[]
     for index, row in dataset.iterrows():
-        for genome, net in zip(ge, nets):
-            output = net.activate((row["Open"], row["Close"], row["High"], row["Low"]))
-            decision = output.index(max(output))
-            plot_data.append([(index + 1), row["Close"]])
-            if decision == 0:
-                prediction="Down"
-            elif decision == 1:
-                prediction="Up"
-            else:
-                genome.fitness -= 1
-            next_open = dataset["Open"].shift(-1).iloc[index] if index < len(dataset) - 1 else None
-            next_close = dataset["Close"].shift(-1).iloc[index] if index < len(dataset) - 1 else None
-
-            print(next_open, next_close) 
-            if next_close > next_open:
-                actual_next="Up"
-            else:
-                actual_next="Down"
-            if prediction == actual_next:
-                genome.fitness += 1
-            else:
-                genome.fitness -= 1
-            drawnow(makeFig)
-            plt.pause(0.001)
-            # Clear data for the next iteration
-            print("Generation: ", gen,"Predicted: ", prediction, "Actual: ", actual_next)
+        # Get the past five values of rows["Close"] into a list
+        past_10_close.append(row["Close"])
+        if len(past_10_close) > 10:
+            past_10_close = past_10_close[-10:]
+            for genome, net in zip(ge, nets):
+                    next_index = index + 1
+                    next_close = dataset.iloc[next_index]["Close"]
+                    output = net.activate(tuple(past_10_close))
+                    prediction = output[0]
+                    if next_index < len(dataset):
+                        
+                        if abs(prediction - next_close) <= 0.5:
+                            # fitness_increment = max(0, 1 - (abs(prediction - next_close) / 3))
+                            # genome.fitness += fitness_increment
+                            genome.fitness += 1
+                        else:
+                            genome.fitness -= 1
+                    if genome.fitness<=0:
+                        ge.pop(ge.index(genome)) 
+                    plot_data.append([(index + 1), row["Close"], prediction])
+                    drawnow(makeFig)
+                    plt.pause(0.001)
+                    # Clear data for the next iteration
+                    print("Generation: ", gen,"Predicted: ", prediction, "Actual: ", row["Close"])
+            # sorted_genomes = sorted(ge, key=lambda genome: genome.fitness, reverse=True)
+            # top_3_genomes = sorted_genomes[:3]  # Select the top 3 genomes
+            # ge = top_3_genomes
+    plt.close("all")
 def run(config_file):
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                          neat.DefaultSpeciesSet, neat.DefaultStagnation,
